@@ -45,6 +45,48 @@ class Bspline:
         spline = interpolate.interp1d(qs, ws, kind='linear', axis=- 1, copy=True, bounds_error=False, fill_value=0)
         return spline
 
+class WendlandC2:
+    """3D Wendland C2 kernel as used in SWIFT."""
+
+    def __init__(self, nbins=1000):
+        self.name = "Wendland C2"
+        self.norm = 3.3422538
+        self.nbins = nbins
+
+    def Info(self):
+        print("This class defines the 3D Wendland C2 kernel used by SWIFT.")
+
+    def Kernel(self, q):
+        """
+        Parameters
+        ----------
+        q : array_like
+            Distance in units of the kernel support radius.
+            Support: 0 <= q <= 1.
+        """
+
+        result = np.zeros_like(q)
+
+        mask = (q <= 1)
+
+        result[mask] = self.norm * (1.0 - q[mask])**4 * (1.0 + 4.0 * q[mask])
+
+        return result
+
+    def Spline(self):
+        qs = np.arange(0, 1, 1.0 / self.nbins)
+        ws = self.Kernel(qs)
+
+        spline = interpolate.interp1d(
+            qs,
+            ws,
+            kind='linear',
+            bounds_error=False,
+            fill_value=0,
+        )
+
+        return spline
+
 class TGauss:
     ''' A truncated Gaussian, with dispersion sigma=1. It is 
         truncated at N sigma in *each of the 3 Cartesian directions* '''

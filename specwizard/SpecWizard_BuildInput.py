@@ -580,7 +580,7 @@ class Build_Input:
             periodic = wizard_yml['extraparams']['periodic']
             pixelkms = wizard_yml['extraparams']['pixkms']
             read_ion = wizard_yml['extraparams']['ReadIonFrac']
-            self.ExtraParams(periodic=True, pixkms=pixelkms, ReadIonFrac=read_ion)
+            self.ExtraParams(periodic=periodic, pixkms=pixelkms, ReadIonFrac=read_ion)
         except:
             pass
         #Read output params

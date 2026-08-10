@@ -7,7 +7,7 @@ from .SpecWizard_Input import ReadData
 from .SpecWizard_Elements import Elements
 from .SpecWizard_IonizationBalance import IonizationBalance
 from .SpecWizard_SplineInterpolation import ColumnTable
-from .SpecWizard_SplineInterpolation import Bspline, TGauss
+from .SpecWizard_SplineInterpolation import Bspline, TGauss, WendlandC2
 from .SpecWizard_IonTables import IonTables
 from .reading_simulations import InputFunctions
 
@@ -18,7 +18,7 @@ constants = ReadPhys()
 class SightLineProjection:
     
     ''' Interpolate particle properties to a sight line, using SPH kernel interpolation '''
-    def __init__(self, specparams, kernelprojection="Bspline",pixkms=1):
+    def __init__(self, specparams, kernelprojection="Wendland C2",pixkms=1):
         self.specparams        = specparams
         self.kernelprojection = specparams["extra_parameters"]['Kernel']
         self.pixkms           = specparams["extra_parameters"]['pixkms']
@@ -30,10 +30,13 @@ class SightLineProjection:
         elif kernelprojection=="TGauss":
             columntable      = ColumnTable(TGauss())
             self.kernelprojection = columntable.Column()
+        elif kernelprojection=="Wendland C2":
+            columntable      = ColumnTable(WendlandC2())
+            self.kernelprojection = columntable.Column()
 
         else:
             print("ERROR "+kernelprojection+ " is not a valid kernel." + "\n" + "The valid kernels are: "
-                  + "\n" + " Bspline" + "\n" + " TGauss")
+                  + "\n" + " Bspline" + "\n" + " TGauss", "\n" + " Wendland C2")
         
         
         #set periodic
@@ -137,7 +140,7 @@ class SightLineProjection:
             
        # mask particles that contribute
         mask  = b < 1.1
-
+         
         #shift_in_z is 
         shift_in_z   = zproj 
         int_zmins    = ((particles['Positions']['Value'][:,2].value - h -shift_in_z) / pix).astype(int) - 1

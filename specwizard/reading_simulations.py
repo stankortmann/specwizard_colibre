@@ -996,6 +996,7 @@ class ReadSwift:
         sightline = self.fileparams['sightline']
         
         sightline = self.inputfunc.set_sightlineparams(sightline,header)
+        FWHM = 2.571
         
         if self.snaptype == 'los':
             groupname    = groupdic['groupname'].format(sightline['nsight'])
@@ -1017,7 +1018,8 @@ class ReadSwift:
             swif_mask.constrain_spatial(load_region)
 
             self.SW_snap = sw.load(self.fname, mask=swif_mask)
-            SmoothingL = self.SW_snap.gas.smoothing_lengths
+            #also divide by FWHM to convert from FWHM to extent of finite support.
+            SmoothingL = self.SW_snap.gas.smoothing_lengths*FWHM
             Positions  = self.SW_snap.gas.coordinates
 
 
@@ -1045,9 +1047,9 @@ class ReadSwift:
         particles['Metallicities'] = metallicity
         
         
-        FWHM = 0.362
-        particles['SmoothingLengths']["Value"] /= FWHM
-        print("We divide Swift's smoothing length by {0:1.3f} to convert from FWHM to extent of finite support".format(FWHM))
+        
+        particles['SmoothingLengths']["Value"] *= FWHM
+        print("We multiply Swift's smoothing length by {0:1.3f} to convert from FWHM to extent of finite support".format(FWHM))
         if (self.simtype == 'swift' and self.readIonFrac):
             field_name= self.fileparams['extra_parameters']['ReadIonFrac']['HI']
             ionfrac = self.read_variable(varname = groupname + '/' + field_name)
