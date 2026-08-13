@@ -151,50 +151,40 @@ class LongSpectra:
         return file_los
     
     
-    def Rebin(self,spectrum, wavelong,waveshort):
-        ''' rebin the function y(x) to the new bins xnew
-         Interpolation is performed such that the mean of the function is conserved
-         Input: 
-           -spectrum: dictionary, containing
-              -L:       linear extent of the wavelength range
-              -wave:    wavelength or Hubble velocity
-              -flux:    flux
-           -wave:       new wavelength or Hubble velocity to rebin to 
-           '''
-        # determine pixel size
-        L    = waveshort.max() #spectrum["L"]
-        npix = len(spectrum) #spectrum["npix"]
-        pix  = L/npix
-        x0   = np.arange(npix) * pix
-        vHubble = waveshort
-        dx = vHubble[1:] -vHubble[0:-1]
-        dx = np.concatenate([dx, [L - x0[-1]]])
-        #
-        xR = np.copy(vHubble) + dx  # right side of pixel
+    def Rebin(self, spectrum, new_grid, old_grid):
 
-        # cumulative sum of the function y0(x0)
+        L = old_grid.max()
+        npix = len(spectrum)
+
+        pix = L / npix
+        x0 = np.arange(npix) * pix
+
+        dx = old_grid[1:] - old_grid[:-1]
+        dx = np.concatenate([dx, [L - x0[-1]]])
+
+        xR = old_grid + dx
+
         f = np.cumsum(spectrum * dx)
 
-        # new pixels
-        dxnew = wavelong[1:] - wavelong[0:-1]  # size of pixels
-        dxnew = np.concatenate([dxnew, [L - wavelong[-1]]])
-        xnewR = np.copy(wavelong) + dxnew  # right side of pixels
+        dxnew = new_grid[1:] - new_grid[:-1]
+        dxnew = np.concatenate([dxnew, [L - new_grid[-1]]])
 
-        # interpolation function
-        finterp = interp1d(xR,
-                           f,
-                           kind='linear',
-                           bounds_error=False,
-                           fill_value=(0, f[-1]))
+        xnewR = new_grid + dxnew
+
+        finterp = interp1d(
+            xR,
+            f,
+            kind='linear',
+            bounds_error=False,
+            fill_value=(0, f[-1])
+        )
+
         fnew = finterp(xnewR)
 
-        # rebinned value
         fbinned = np.concatenate([[0], fnew])
-        ynew = (fbinned[1:] - fbinned[0:-1]) / dxnew
-        #
-        newspectrum         = spectrum.copy()
-        #newspectrum["wave"] = np.copy(wave)
-        #newspectrum["flux"] = ynew
+
+        ynew = (fbinned[1:] - fbinned[:-1]) / dxnew
+
         return ynew
     
     
@@ -742,26 +732,104 @@ class LongSpectra:
 
         return outputs
 
-    def rebin_to_spectrograph(self,long_spectra):
+
+    def rebin_to_spectrograph(self, long_spectra):
+        """
+        Rebin all array-valued ion fields from the high-resolution
+        long spectrum onto the spectrograph wavelength grid.
+
+        Scalar fields such as lambda0 and f-value are kept unchanged.
+
+        Only the 'Value' part of a field is rebinned. All other
+        information, including units and 'Info', is preserved.
+
+        Returns
+        -------
+        rebinned_spectra : dict
+            Rebinned spectrum with the same metadata structure as
+            long_spectra.
+        """
+
         c_kms = constants['c'].to('km/s')
+
+        # High-resolution velocity and wavelength grids
         velocity_array = self.velocity_array
-        long_spectra = long_spectra["Ions"]
-        wavelength_fine_array = self.lambda_min * np.exp(velocity_array/c_kms)
-        wavelength_tau = {}
-        lines  = list(long_spectra.keys())
-        if "OD" in  long_spectra[lines[0]]:
-            wavelength_tau['lines'] = {}
 
-            for line in lines:
-                wavelength_tau['lines'][line] = wave_rebin_total = self.Rebin(long_spectra[line]["OD"],self.wavelength,wavelength_fine_array)        
-        else:
-            for element in lines:
-                wavelength_tau[element] = {}
-                wavelength_tau[element]['lines'] = {}
+        wavelength_fine_array = (
+            self.lambda_min *
+            np.exp(velocity_array / c_kms)
+        )
 
-                for line in long_spectra[element].keys():
-                    wavelength_tau[element]['lines'][line] = wave_rebin_total = self.Rebin(long_spectra[element][line],self.wavelength,wavelength_fine_array)        
+        rebinned_spectra = copy.deepcopy(long_spectra)
 
-        wavelength_tau['wavelength'] = self.wavelength      
+        wavelength_units = getattr(long_spectra.get('wavelengths', None), 'units', unyt.Angstrom)
+        velocity_units = getattr(long_spectra.get('velocities', None), 'units', unyt.km / unyt.s)
 
-        return wavelength_tau
+        def _rebin_with_units(value):
+            value_units = getattr(value, 'units', None)
+            raw_value = value.value if hasattr(value, 'value') else value
+            rebinned_value = self.Rebin(
+                raw_value,
+                self.wavelength,
+                wavelength_fine_array
+            )
+
+            if value_units is not None:
+                return rebinned_value * value_units
+            return rebinned_value
+
+        # ----------------------------------------------------------
+        # Loop over ions
+        # ----------------------------------------------------------
+        for ion, ion_data in long_spectra['Ions'].items():
+
+            for field, data in ion_data.items():
+
+                # --------------------------------------------------
+                # Scalar fields
+                # --------------------------------------------------
+                if field in ['lambda0', 'f-value']:
+                    rebinned_spectra['Ions'][ion][field] = copy.deepcopy(data)
+                    continue
+
+                if isinstance(data, dict) and 'Value' in data:
+
+                    # Copy the complete dictionary.
+                    # This preserves Info and any other metadata.
+                    rebinned_data = copy.deepcopy(data)
+
+                    value = data['Value']
+
+                    # Scalar Value -> don't rebin
+                    if np.ndim(value) == 0:
+                        rebinned_spectra['Ions'][ion][field] = rebinned_data
+                        continue
+
+                    # Rebin only the Value and restore the original units.
+                    rebinned_data['Value'] = _rebin_with_units(value)
+
+                    rebinned_spectra['Ions'][ion][field] = rebinned_data
+
+                # --------------------------------------------------
+                # Direct array fields
+                # --------------------------------------------------
+                elif np.ndim(data) > 0:
+
+                    rebinned_spectra['Ions'][ion][field] = _rebin_with_units(data)
+
+                # --------------------------------------------------
+                # Other scalar fields
+                # --------------------------------------------------
+                else:
+                    rebinned_spectra['Ions'][ion][field] = copy.deepcopy(data)
+
+        # ----------------------------------------------------------
+        # Add rebinned grids
+        # ----------------------------------------------------------
+
+        rebinned_spectra['wavelengths'] = self.wavelength * wavelength_units
+
+        rebinned_spectra['velocities'] = np.log(self.wavelength / self.lambda_min) * velocity_units
+
+        return rebinned_spectra
+
